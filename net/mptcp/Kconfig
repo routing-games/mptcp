@@ -92,6 +92,13 @@ config MPTCP_REDUNDANT
 	  This scheduler sends all packets redundantly over all subflows to decreases
 	  latency and jitter on the cost of lower throughput.
 
+config MPTCP_WLB
+	tristate "MPTCP WeightedLB"
+	depends on (MPTCP=y)
+	---help---
+	  This scheduler distributes packets among active subflows according to configured
+	  load-balancing ratio.
+
 choice
 	prompt "Default MPTCP Scheduler"
 	default DEFAULT
@@ -115,7 +122,13 @@ choice
 		---help---
 		  This is the redundant scheduler, sending packets redundantly over
 		  all the subflows.
-
+		  
+	config DEFAULT_WLB
+		bool "WeightedLB" if MPTCP_WLB=y
+		---help---
+		  This is the weighted load-balancing scheduler, distributing packets 
+		  among active subflows according to configured load-balancing ratio.
+		  
 endchoice
 endif
 
