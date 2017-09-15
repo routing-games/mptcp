@@ -11,17 +11,29 @@ static bool cwnd_limited __read_mostly = 1;
 module_param(cwnd_limited, bool, 0644);
 MODULE_PARM_DESC(cwnd_limited, "if set to 1, the scheduler tries to fill the congestion-window on all subflows");
 
-struct rrsched_priv {
+//TODO @y5er: add an initial weight variable
+// the max number of segments that a sub-flow can send in its turn, if quota >= weight its turn is over
+static unsigned char wlb_weight __read_mostly = 10;
+module_param(wlb_weight, byte, 0644);
+MODULE_PARM_DESC(wlb_weight, "The initial weight associated to all active subflows ");
+
+
+// TODO @y5er:change struct name from rrsched_priv to wlbsched_priv
+struct wlbsched_priv {
 	unsigned char quota;
+	//TODO @y5er: beside the quota, each subflow maintains a weight
+	// and the quota must always <= weight
+	unsigned char weight;
 };
 
-static struct rrsched_priv *rrsched_get_priv(const struct tcp_sock *tp)
+// TODO @y5er:change function name from rrsched_get_priv to wlbsched_get_priv
+static struct wlbsched_priv *wlbsched_get_priv(const struct tcp_sock *tp)
 {
-	return (struct rrsched_priv *)&tp->mptcp->mptcp_sched[0];
+	return (struct wlbsched_priv *)&tp->mptcp->mptcp_sched[0];
 }
 
 /* If the sub-socket sk available to send the skb? */
-static bool mptcp_rr_is_available(const struct sock *sk, const struct sk_buff *skb,
+static bool mptcp_wlb_is_available(const struct sock *sk, const struct sk_buff *skb,
 				  bool zero_wnd_test, bool cwnd_test)
 {
 	const struct tcp_sock *tp = tcp_sk(sk);
@@ -86,7 +98,7 @@ zero_wnd_test:
 }
 
 /* Are we not allowed to reinject this skb on tp? */
-static int mptcp_rr_dont_reinject_skb(const struct tcp_sock *tp, const struct sk_buff *skb)
+static int mptcp_wlb_dont_reinject_skb(const struct tcp_sock *tp, const struct sk_buff *skb)
 {
 	/* If the skb has already been enqueued in this sk, try to find
 	 * another one.
@@ -97,7 +109,7 @@ static int mptcp_rr_dont_reinject_skb(const struct tcp_sock *tp, const struct sk
 }
 
 /* We just look for any subflow that is available */
-static struct sock *rr_get_available_subflow(struct sock *meta_sk,
+static struct sock *wlb_get_available_subflow(struct sock *meta_sk,
 					     struct sk_buff *skb,
 					     bool zero_wnd_test)
 {
@@ -109,7 +121,7 @@ static struct sock *rr_get_available_subflow(struct sock *meta_sk,
 	    skb && mptcp_is_data_fin(skb)) {
 		mptcp_for_each_sk(mpcb, sk) {
 			if (tcp_sk(sk)->mptcp->path_index == mpcb->dfin_path_index &&
-			    mptcp_rr_is_available(sk, skb, zero_wnd_test, true))
+			    mptcp_wlb_is_available(sk, skb, zero_wnd_test, true))
 				return sk;
 		}
 	}
@@ -118,14 +130,13 @@ static struct sock *rr_get_available_subflow(struct sock *meta_sk,
 	mptcp_for_each_sk(mpcb, sk) {
 		struct tcp_sock *tp = tcp_sk(sk);
 
-		if (!mptcp_rr_is_available(sk, skb, zero_wnd_test, true))
+		if (!mptcp_wlb_is_available(sk, skb, zero_wnd_test, true))
 			continue;
 
-		if (mptcp_rr_dont_reinject_skb(tp, skb)) {
+		if (mptcp_wlb_dont_reinject_skb(tp, skb)) {
 			backupsk = sk;
 			continue;
 		}
-
 		bestsk = sk;
 	}
 
@@ -152,7 +163,7 @@ static struct sock *rr_get_available_subflow(struct sock *meta_sk,
  * and sets it to -1 if it is a meta-level retransmission to optimize the
  * receive-buffer.
  */
-static struct sk_buff *__mptcp_rr_next_segment(const struct sock *meta_sk, int *reinject)
+static struct sk_buff *__mptcp_wlb_next_segment(const struct sock *meta_sk, int *reinject)
 {
 	const struct mptcp_cb *mpcb = tcp_sk(meta_sk)->mpcb;
 	struct sk_buff *skb = NULL;
@@ -172,15 +183,18 @@ static struct sk_buff *__mptcp_rr_next_segment(const struct sock *meta_sk, int *
 	return skb;
 }
 
-static struct sk_buff *mptcp_rr_next_segment(struct sock *meta_sk,
+static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 					     int *reinject,
 					     struct sock **subsk,
 					     unsigned int *limit)
 {
 	const struct mptcp_cb *mpcb = tcp_sk(meta_sk)->mpcb;
 	struct sock *sk_it, *choose_sk = NULL;
-	struct sk_buff *skb = __mptcp_rr_next_segment(meta_sk, reinject);
+	struct sk_buff *skb = __mptcp_wlb_next_segment(meta_sk, reinject);
+	//TODO @y5er: change the intial value of split to initial weight, since we are not using num_segments
 	unsigned char split = num_segments;
+	// @y5er: what are the roles of split and limit variables ?
+	// the value of limit is updated according to the value of split
 	unsigned char iter = 0, full_subs = 0;
 
 	/* As we set it, we have to reset it as well. */
@@ -190,7 +204,7 @@ static struct sk_buff *mptcp_rr_next_segment(struct sock *meta_sk,
 		return NULL;
 
 	if (*reinject) {
-		*subsk = rr_get_available_subflow(meta_sk, skb, false);
+		*subsk = wlb_get_available_subflow(meta_sk, skb, false);
 		if (!*subsk)
 			return NULL;
 
@@ -202,29 +216,38 @@ retry:
 	/* First, we look for a subflow who is currently being used */
 	mptcp_for_each_sk(mpcb, sk_it) {
 		struct tcp_sock *tp_it = tcp_sk(sk_it);
-		struct rrsched_priv *rsp = rrsched_get_priv(tp_it);
+		struct wlbsched_priv *rsp = wlbsched_get_priv(tp_it);
 
-		if (!mptcp_rr_is_available(sk_it, skb, false, cwnd_limited))
+		if (!mptcp_wlb_is_available(sk_it, skb, false, cwnd_limited))
 			continue;
 
 		iter++;
 
 		/* Is this subflow currently being used? */
-		if (rsp->quota > 0 && rsp->quota < num_segments) {
-			split = num_segments - rsp->quota;
+		// TODO @y5er: we change the codition here
+		// rsp->quota < rsp->weight
+		// and split =  rsp->weight - rsp->quota
+		if (rsp->quota > 0 && rsp->quota < rsp->weight) {
+			split = rsp->weight - rsp->quota;
 			choose_sk = sk_it;
 			goto found;
 		}
 
 		/* Or, it's totally unused */
+		// TODO @y5er: if the subflow is totally unused
+		// split = rsp->weight
 		if (!rsp->quota) {
-			split = num_segments;
+			split = rsp->weight;
 			choose_sk = sk_it;
 		}
 
+		//TODO @y5er: replace num_segments by rsp->weight
 		/* Or, it must then be fully used  */
-		if (rsp->quota >= num_segments)
+		if (rsp->quota >= rsp->weight)
 			full_subs++;
+
+		//@y5er: this code segment helps to select the subflow for allocating the next segment
+		// only one subflow will be selected, and choose_sk points to that subflow
 	}
 
 	/* All considered subflows have a full quota, and we considered at
@@ -236,9 +259,9 @@ retry:
 		 */
 		mptcp_for_each_sk(mpcb, sk_it) {
 			struct tcp_sock *tp_it = tcp_sk(sk_it);
-			struct rrsched_priv *rsp = rrsched_get_priv(tp_it);
+			struct wlbsched_priv *rsp = wlbsched_get_priv(tp_it);
 
-			if (!mptcp_rr_is_available(sk_it, skb, false, cwnd_limited))
+			if (!mptcp_wlb_is_available(sk_it, skb, false, cwnd_limited))
 				continue;
 
 			rsp->quota = 0;
@@ -251,17 +274,27 @@ found:
 	if (choose_sk) {
 		unsigned int mss_now;
 		struct tcp_sock *choose_tp = tcp_sk(choose_sk);
-		struct rrsched_priv *rsp = rrsched_get_priv(choose_tp);
+		struct wlbsched_priv *rsp = wlbsched_get_priv(choose_tp);
 
-		if (!mptcp_rr_is_available(choose_sk, skb, false, true))
+		if (!mptcp_wlb_is_available(choose_sk, skb, false, true))
 			return NULL;
 
 		*subsk = choose_sk;
+		// @y5er: the subsk pointer is updated, point to selected subflow choose_sk
+		// mptcp_wlb_next_segment() not only decides the next segment to be sent
+		// but also deciding which subflow send that segment
+
 		mss_now = tcp_current_mss(*subsk);
 		*limit = split * mss_now;
+		// @y5er: we know that split = num_segments - rsp->quota;
+		// split determine the max number of segments that the selected subflow can be allocated
+		// so limit = split * mss_now = max number of bytes can be allocated to selected subflow
 
+		// update the quota
 		if (skb->len > mss_now)
 			rsp->quota += DIV_ROUND_UP(skb->len, mss_now);
+			// skb->len / mss_now = number of segments to be allocated
+			// update the subflow's quota with the number of segments to be sent
 		else
 			rsp->quota++;
 
@@ -271,30 +304,58 @@ found:
 	return NULL;
 }
 
-static struct mptcp_sched_ops mptcp_sched_rr = {
-	.get_subflow = rr_get_available_subflow,
-	.next_segment = mptcp_rr_next_segment,
+//TODO: y5er: add a new init function to initialize the weight for each subflow
+// Q: Need to go throught all the sub-sockets and init the weight ? -> NO
+// A: Since the init function will be called once a new socket is created
+
+// Q: How to ensure that the input of init function will be a correct meta_sk ?
+// A: The input of init function is a sub-flow socket not the meta_sk
+
+// Q: How to identify the subflow ? and init the corresponding weight
+// A: Now we just simplify by init the weight increasingly, 1st subflow is w, 2nd is w+1 and so on
+static void wlbsched_init(struct sock *sk)
+{
+	struct wlbsched_priv *wsp = wlbsched_get_priv(tcp_sk(sk));
+
+		wsp->weight = wlb_weight;
+		// wlb_weight++;
+		wlb_weight = wlb_weight*2; // try to double the weight, easier to evaluate the load on each sub-flow
+		mptcp_debug("Subflow weight %d \n",wsp->weight);
+		// @y5er: we start with a simple logic
+		// when a first subflow is created, its weight is set to the wlb_weight
+		// after that whenever a new sub-flow is established, wlb_weight is increased by one then assigned to the sub-flow
+		// later subflows have higher weights that earlier subflows
+
+		// just for testing purpose to see how the init function and the modified version of rr_next_segment works
+}
+
+static struct mptcp_sched_ops mptcp_sched_wlb = {
+	.get_subflow = wlb_get_available_subflow,
+	.next_segment = mptcp_wlb_next_segment,
+	// @y5er: add call to init function
+	.init = wlbsched_init,
 	.name = "weightedlb",
 	.owner = THIS_MODULE,
 };
 
-static int __init rr_register(void)
+//TODO @y5er: change the function name from rr_fncname to wlb_fncname
+static int __init wlb_register(void)
 {
-	BUILD_BUG_ON(sizeof(struct rrsched_priv) > MPTCP_SCHED_SIZE);
+	BUILD_BUG_ON(sizeof(struct wlbsched_priv) > MPTCP_SCHED_SIZE);
 
-	if (mptcp_register_scheduler(&mptcp_sched_rr))
+	if (mptcp_register_scheduler(&mptcp_sched_wlb))
 		return -1;
 
 	return 0;
 }
 
-static void rr_unregister(void)
+static void wlb_unregister(void)
 {
-	mptcp_unregister_scheduler(&mptcp_sched_rr);
+	mptcp_unregister_scheduler(&mptcp_sched_wlb);
 }
 
-module_init(rr_register);
-module_exit(rr_unregister);
+module_init(wlb_register);
+module_exit(wlb_unregister);
 
 MODULE_AUTHOR("Duy Nguyen");
 MODULE_LICENSE("GPL");

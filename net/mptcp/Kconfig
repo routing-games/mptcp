@@ -138,5 +138,6 @@ config DEFAULT_MPTCP_SCHED
 	default "default" if DEFAULT_SCHEDULER
 	default "roundrobin" if DEFAULT_ROUNDROBIN
 	default "redundant" if DEFAULT_REDUNDANT
+	default "weightedlb" if DEFAULT_WLB
 	default "default"
 
