@@ -13,9 +13,20 @@ MODULE_PARM_DESC(cwnd_limited, "if set to 1, the scheduler tries to fill the con
 
 //TODO @y5er: add an initial weight variable
 // the max number of segments that a sub-flow can send in its turn, if quota >= weight its turn is over
-static unsigned char wlb_weight __read_mostly = 10;
-module_param(wlb_weight, byte, 0644);
-MODULE_PARM_DESC(wlb_weight, "The initial weight associated to all active subflows ");
+
+//static unsigned char wlb_weight __read_mostly = 10;
+//module_param(wlb_weight, byte, 0644);
+//MODULE_PARM_DESC(wlb_weight, "The initial weight associated to all active subflows ");
+
+//@y5er: update for demo
+//latter on we will define a proper approach for assigning weight to each subflow
+static unsigned char wlb_weight1 __read_mostly = 10;
+module_param(wlb_weight1, byte, 0644);
+MODULE_PARM_DESC(wlb_weight1, "The initial weight associated to all active subflows from NIC#1");
+
+static unsigned char wlb_weight2 __read_mostly = 10;
+module_param(wlb_weight2, byte, 0644);
+MODULE_PARM_DESC(wlb_weight2, "The initial weight associated to all active subflows from NIC#2");
 
 
 // TODO @y5er:change struct name from rrsched_priv to wlbsched_priv
@@ -317,16 +328,23 @@ static void wlbsched_init(struct sock *sk)
 {
 	struct wlbsched_priv *wsp = wlbsched_get_priv(tcp_sk(sk));
 
-		wsp->weight = wlb_weight;
+		// wsp->weight = wlb_weight;
 		// wlb_weight++;
-		wlb_weight = wlb_weight*2; // try to double the weight, easier to evaluate the load on each sub-flow
-		mptcp_debug("Subflow weight %d \n",wsp->weight);
+		// wlb_weight = wlb_weight*2; // try to double the weight, easier to evaluate the load on each sub-flow
+		// mptcp_debug("Subflow weight %d \n",wsp->weight);
 		// @y5er: we start with a simple logic
 		// when a first subflow is created, its weight is set to the wlb_weight
 		// after that whenever a new sub-flow is established, wlb_weight is increased by one then assigned to the sub-flow
 		// later subflows have higher weights that earlier subflows
 
 		// just for testing purpose to see how the init function and the modified version of rr_next_segment works
+		// @y5er: update for demo
+		// setting weight according to path index
+		struct sock *sk = (struct sock *)tp;
+		if (tp->mptcp->path_index == 1)
+			wsp->weight = wlb_weight1;
+		else if (tp->mptcp->path_index == 2)
+			wsp->weight = wlb_weight2;
 }
 
 static struct mptcp_sched_ops mptcp_sched_wlb = {
