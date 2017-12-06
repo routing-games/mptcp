@@ -19,6 +19,7 @@ MODULE_PARM_DESC(cwnd_limited, "if set to 1, the scheduler tries to fill the con
 //MODULE_PARM_DESC(wlb_weight, "The initial weight associated to all active subflows ");
 
 //@y5er: update for demo
+//assuming we have only two NICs, and one subflow per NIC
 //latter on we will define a proper approach for assigning weight to each subflow
 static unsigned char wlb_weight1 __read_mostly = 10;
 module_param(wlb_weight1, byte, 0644);
@@ -340,7 +341,8 @@ static void wlbsched_init(struct sock *sk)
 		// just for testing purpose to see how the init function and the modified version of rr_next_segment works
 		// @y5er: update for demo
 		// setting weight according to path index
-		struct sock *sk = (struct sock *)tp;
+		struct tcp_sock *tp	= tcp_sk(sk);
+
 		if (tp->mptcp->path_index == 1)
 			wsp->weight = wlb_weight1;
 		else if (tp->mptcp->path_index == 2)
