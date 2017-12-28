@@ -150,7 +150,6 @@ static struct sock *wlb_get_available_subflow(struct sock *meta_sk,
 
 	if (bestsk) {
 		sk = bestsk;
-		mptcp_debug("MPTCP weightedLB scheduler : found best subflow \n");
 	} else if (backupsk) {
 		/* It has been sent on all subflows once - let's give it a
 		 * chance again by restarting its pathmask.
@@ -297,6 +296,8 @@ found:
 		// split determine the max number of segments that the selected subflow can be allocated
 		// so limit = split * mss_now therefore defines the max number of bytes can be allocated to selected subflow
 
+		mptcp_debug(" Subflow %d from %pI4 with weight %d is selected, quota = %d \n",
+						choose_tp->mptcp->path_index,&((struct inet_sock *)tp)->inet_saddr,rsp->weight,rsp->quota);
 		// update the quota
 		if (skb->len > mss_now)
 			rsp->quota += DIV_ROUND_UP(skb->len, mss_now);
@@ -304,6 +305,8 @@ found:
 			// update the subflow's quota with the number of segments to be sent
 		else
 			rsp->quota++;
+
+		mptcp_debug(" Split = %d and quota after update = %d \n",split, rsp->quota);
 
 		return skb;
 	}
@@ -332,7 +335,7 @@ static void wlbsched_init(struct sock *sk)
 	else if (tp->mptcp->path_index == 2)
 		wsp->weight = wlb_weight2;
 
-	mptcp_debug("Subflow weight %d \n",wsp->weight);
+	mptcp_debug(" Subflow weight %d \n",wsp->weight);
 }
 
 static struct mptcp_sched_ops mptcp_sched_wlb = {
