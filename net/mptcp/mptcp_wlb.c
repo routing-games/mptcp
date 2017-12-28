@@ -297,7 +297,7 @@ found:
 		// so limit = split * mss_now therefore defines the max number of bytes can be allocated to selected subflow
 
 		mptcp_debug(" Subflow %d from %pI4 with weight %d is selected, quota = %d \n",
-						choose_tp->mptcp->path_index,&((struct inet_sock *)tp)->inet_saddr,rsp->weight,rsp->quota);
+						choose_tp->mptcp->path_index,&((struct inet_sock *)choose_tp)->inet_saddr,rsp->weight,rsp->quota);
 		// update the quota
 		if (skb->len > mss_now)
 			rsp->quota += DIV_ROUND_UP(skb->len, mss_now);
