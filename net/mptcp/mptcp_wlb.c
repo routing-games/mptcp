@@ -11,34 +11,30 @@ static bool cwnd_limited __read_mostly = 1;
 module_param(cwnd_limited, bool, 0644);
 MODULE_PARM_DESC(cwnd_limited, "if set to 1, the scheduler tries to fill the congestion-window on all subflows");
 
-//TODO @y5er: add an initial weight variable
+//@y5er: add an initial weight variable
 // the max number of segments that a sub-flow can send in its turn, if quota >= weight its turn is over
 
-//static unsigned char wlb_weight __read_mostly = 10;
-//module_param(wlb_weight, byte, 0644);
-//MODULE_PARM_DESC(wlb_weight, "The initial weight associated to all active subflows ");
-
 //@y5er: update for demo
-//assuming we have only two NICs, and one subflow per NIC
-//latter on we will define a proper approach for assigning weight to each subflow
-static unsigned char wlb_weight1 __read_mostly = 10;
+//consider the case of having only two NICs, and there is one subflow per NIC
+static unsigned char wlb_weight1;
 module_param(wlb_weight1, byte, 0644);
 MODULE_PARM_DESC(wlb_weight1, "The initial weight associated to all active subflows from NIC#1");
 
-static unsigned char wlb_weight2 __read_mostly = 10;
+static unsigned char wlb_weight2;
 module_param(wlb_weight2, byte, 0644);
 MODULE_PARM_DESC(wlb_weight2, "The initial weight associated to all active subflows from NIC#2");
 
-
-// TODO @y5er:change struct name from rrsched_priv to wlbsched_priv
 struct wlbsched_priv {
 	unsigned char quota;
-	//TODO @y5er: beside the quota, each subflow maintains a weight
+	// the use of quota is to count the number of segments that already been allocated to a subflow in one round
+	// @y5er: beside the quota, each subflow in the weighted lb scheduler maintains its configured weight
 	// and the quota must always <= weight
 	unsigned char weight;
 };
 
-// TODO @y5er:change function name from rrsched_get_priv to wlbsched_get_priv
+// @y5er: this function support getting the private variables of the weighted lb scheduler
+// beside the common variables shared among scheduler implementations, the modular design also allows scheduler to
+// define its own private variables to use for its own scheduling logic
 static struct wlbsched_priv *wlbsched_get_priv(const struct tcp_sock *tp)
 {
 	return (struct wlbsched_priv *)&tp->mptcp->mptcp_sched[0];
@@ -203,10 +199,11 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 	const struct mptcp_cb *mpcb = tcp_sk(meta_sk)->mpcb;
 	struct sock *sk_it, *choose_sk = NULL;
 	struct sk_buff *skb = __mptcp_wlb_next_segment(meta_sk, reinject);
-	//TODO @y5er: change the intial value of split to initial weight, since we are not using num_segments
-	unsigned char split = num_segments;
-	// @y5er: what are the roles of split and limit variables ?
-	// the value of limit is updated according to the value of split
+
+	//@y5er: change the initial value of split to zero
+	unsigned char split = 0;
+	// split is the max number of segments to be allocated to a subflow
+	// while limit is the max number of bytes to be allocated to a subflow
 	unsigned char iter = 0, full_subs = 0;
 
 	/* As we set it, we have to reset it as well. */
@@ -225,7 +222,7 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 
 retry:
 
-	/* First, we look for a subflow who is currently being used */
+	/* First, we look for a subflow which is currently being used */
 	mptcp_for_each_sk(mpcb, sk_it) {
 		struct tcp_sock *tp_it = tcp_sk(sk_it);
 		struct wlbsched_priv *rsp = wlbsched_get_priv(tp_it);
@@ -236,9 +233,8 @@ retry:
 		iter++;
 
 		/* Is this subflow currently being used? */
-		// TODO @y5er: we change the codition here
-		// rsp->quota < rsp->weight
-		// and split =  rsp->weight - rsp->quota
+		// @y5er: enforce load balancing by adding the constraint rsp->quota < rsp->weight
+		// and the max number of segment could be allocated to the subflow is split =  rsp->weight - rsp->quota
 		if (rsp->quota > 0 && rsp->quota < rsp->weight) {
 			split = rsp->weight - rsp->quota;
 			choose_sk = sk_it;
@@ -246,15 +242,14 @@ retry:
 		}
 
 		/* Or, it's totally unused */
-		// TODO @y5er: if the subflow is totally unused
-		// split = rsp->weight
+		// @y5er: if the subflow is totally unused, then split = rsp->weight
 		if (!rsp->quota) {
 			split = rsp->weight;
 			choose_sk = sk_it;
 		}
 
-		//TODO @y5er: replace num_segments by rsp->weight
 		/* Or, it must then be fully used  */
+		//@y5er: if the subflow is fully used
 		if (rsp->quota >= rsp->weight)
 			full_subs++;
 
@@ -298,9 +293,9 @@ found:
 
 		mss_now = tcp_current_mss(*subsk);
 		*limit = split * mss_now;
-		// @y5er: we know that split = num_segments - rsp->quota;
+		// @y5er: split = rsp->weight - rsp->quota; or rsp->weight in case the subflow have not been used before
 		// split determine the max number of segments that the selected subflow can be allocated
-		// so limit = split * mss_now = max number of bytes can be allocated to selected subflow
+		// so limit = split * mss_now therefore defines the max number of bytes can be allocated to selected subflow
 
 		// update the quota
 		if (skb->len > mss_now)
@@ -317,48 +312,38 @@ found:
 }
 
 //TODO: y5er: add a new init function to initialize the weight for each subflow
-// Q: Need to go throught all the sub-sockets and init the weight ? -> NO
+// Q: Need to go through all the sub-sockets and init the weight ? -> NO
 // A: Since the init function will be called once a new socket is created
 
 // Q: How to ensure that the input of init function will be a correct meta_sk ?
 // A: The input of init function is a sub-flow socket not the meta_sk
 
 // Q: How to identify the subflow ? and init the corresponding weight
-// A: Now we just simplify by init the weight increasingly, 1st subflow is w, 2nd is w+1 and so on
 static void wlbsched_init(struct sock *sk)
 {
 	struct wlbsched_priv *wsp = wlbsched_get_priv(tcp_sk(sk));
 
-		// wsp->weight = wlb_weight;
-		// wlb_weight++;
-		// wlb_weight = wlb_weight*2; // try to double the weight, easier to evaluate the load on each sub-flow
-		// mptcp_debug("Subflow weight %d \n",wsp->weight);
-		// @y5er: we start with a simple logic
-		// when a first subflow is created, its weight is set to the wlb_weight
-		// after that whenever a new sub-flow is established, wlb_weight is increased by one then assigned to the sub-flow
-		// later subflows have higher weights that earlier subflows
+	// @y5er: update for demo
+	// setting weight according to path index
+	struct tcp_sock *tp	= tcp_sk(sk);
 
-		// just for testing purpose to see how the init function and the modified version of rr_next_segment works
-		// @y5er: update for demo
-		// setting weight according to path index
-		struct tcp_sock *tp	= tcp_sk(sk);
+	if (tp->mptcp->path_index == 1)
+		wsp->weight = wlb_weight1;
+	else if (tp->mptcp->path_index == 2)
+		wsp->weight = wlb_weight2;
 
-		if (tp->mptcp->path_index == 1)
-			wsp->weight = wlb_weight1;
-		else if (tp->mptcp->path_index == 2)
-			wsp->weight = wlb_weight2;
+	mptcp_debug("Subflow weight %d \n",wsp->weight);
 }
 
 static struct mptcp_sched_ops mptcp_sched_wlb = {
 	.get_subflow = wlb_get_available_subflow,
 	.next_segment = mptcp_wlb_next_segment,
-	// @y5er: add call to init function
 	.init = wlbsched_init,
 	.name = "weightedlb",
 	.owner = THIS_MODULE,
 };
 
-//TODO @y5er: change the function name from rr_fncname to wlb_fncname
+
 static int __init wlb_register(void)
 {
 	BUILD_BUG_ON(sizeof(struct wlbsched_priv) > MPTCP_SCHED_SIZE);
