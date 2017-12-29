@@ -199,8 +199,9 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 	struct sock *sk_it, *choose_sk = NULL;
 	struct sk_buff *skb = __mptcp_wlb_next_segment(meta_sk, reinject);
 
-	//@y5er: change the initial value of split to zero
-	unsigned char split = 0;
+	//@y5er: defining weight, this weight changes according subflow
+	unsigned char weight = 1;
+	unsigned char split = weight;
 	// split is the max number of segments to be allocated to a subflow
 	// while limit is the max number of bytes to be allocated to a subflow
 	unsigned char iter = 0, full_subs = 0;
@@ -224,53 +225,60 @@ retry:
 	/* First, we look for a subflow which is currently being used */
 	mptcp_for_each_sk(mpcb, sk_it) {
 		struct tcp_sock *tp_it = tcp_sk(sk_it);
-		struct wlbsched_priv *rsp = wlbsched_get_priv(tp_it);
+		struct wlbsched_priv *wsp = wlbsched_get_priv(tp_it);
 
-		if (!mptcp_wlb_is_available(sk_it, skb, false, cwnd_limited))
-			continue;
+		// @y5er: skip that check, to ensure the load balancing ratio is respect by all subflows
+		// we need to wait for unavailable subflows (to become available again)
+		// we only reset the quota if all established subflows reach its assigned weights
+		// note on iter and full_subs, in case of waiting for unavailable subflow : iter > full_sub
+		//if (!mptcp_wlb_is_available(sk_it, skb, false, cwnd_limited))
+		//	continue;
+
+		// @y5er: weight assignment, each subflow maintain a different weight value
+		if (tp_it->mptcp->path_index == 1)
+			weight = wlb_weight1;
+		else if (tp_it->mptcp->path_index == 2)
+			weight = wlb_weight2;
 
 		iter++;
 
 		/* Is this subflow currently being used? */
-		// @y5er: enforce load balancing by adding the constraint rsp->quota < rsp->weight
-		// and the max number of segment could be allocated to the subflow is split =  rsp->weight - rsp->quota
-		if (rsp->quota > 0 && rsp->quota < rsp->weight) {
-			split = rsp->weight - rsp->quota;
+		// @y5er: enforce load balancing by adding the constraint wsp->quota < weight
+		// and the max number of segment could be allocated to the subflow is split =  weight - wsp->quota
+		if (wsp->quota > 0 && wsp->quota < weight) {
+			split = weight - wsp->quota;
 			choose_sk = sk_it;
 			goto found;
 		}
 
 		/* Or, it's totally unused */
 		// @y5er: if the subflow is totally unused, then split = rsp->weight
-		if (!rsp->quota) {
-			split = rsp->weight;
+		if (!wsp->quota) {
+			split = weight;
 			choose_sk = sk_it;
 		}
 
 		/* Or, it must then be fully used  */
 		//@y5er: if the subflow is fully used
-		if (rsp->quota >= rsp->weight)
+		if (wsp->quota >= weight)
 			full_subs++;
 
-		//@y5er: this code segment helps to select the subflow for allocating the next segment
-		// only one subflow will be selected, and choose_sk points to that subflow
+		//@y5er: the above code segment helps to select the sub-flow for allocating the next segment
+		// the choose_sk points to the only selected sub-flow
 	}
 
-	/* All considered subflows have a full quota, and we considered at
-	 * least one.
-	 */
+	// All considered subflows have a full quota, and we considered at least one.
 	if (iter && iter == full_subs) {
-		/* So, we restart this round by setting quota to 0 and retry
-		 * to find a subflow.
-		 */
+
+		// So, we restart this round by setting quota to 0 and retry to find a subflow.
 		mptcp_for_each_sk(mpcb, sk_it) {
 			struct tcp_sock *tp_it = tcp_sk(sk_it);
-			struct wlbsched_priv *rsp = wlbsched_get_priv(tp_it);
+			struct wlbsched_priv *wsp = wlbsched_get_priv(tp_it);
 
 			if (!mptcp_wlb_is_available(sk_it, skb, false, cwnd_limited))
 				continue;
 
-			rsp->quota = 0;
+			wsp->quota = 0;
 		}
 
 		goto retry;
@@ -280,7 +288,7 @@ found:
 	if (choose_sk) {
 		unsigned int mss_now;
 		struct tcp_sock *choose_tp = tcp_sk(choose_sk);
-		struct wlbsched_priv *rsp = wlbsched_get_priv(choose_tp);
+		struct wlbsched_priv *wsp = wlbsched_get_priv(choose_tp);
 
 		if (!mptcp_wlb_is_available(choose_sk, skb, false, true))
 			return NULL;
@@ -296,17 +304,16 @@ found:
 		// split determine the max number of segments that the selected subflow can be allocated
 		// so limit = split * mss_now therefore defines the max number of bytes can be allocated to selected subflow
 
-		mptcp_debug(" Subflow %d from %pI4 with weight %d is selected, quota = %d \n",
-						choose_tp->mptcp->path_index,&((struct inet_sock *)choose_tp)->inet_saddr,rsp->weight,rsp->quota);
+		//mptcp_debug(" Subflow %d from %pI4 with weight %d is selected, quota = %d \n", choose_tp->mptcp->path_index,&((struct inet_sock *)choose_tp)->inet_saddr,wsp->weight,wsp->quota);
+		mptcp_debug(" Subflow %d weight = %d is selected, init weight = %d \n", choose_tp->mptcp->path_index,weight,wsp->weight);
+
 		// update the quota
 		if (skb->len > mss_now)
-			rsp->quota += DIV_ROUND_UP(skb->len, mss_now);
+			wsp->quota += DIV_ROUND_UP(skb->len, mss_now);
 			// skb->len / mss_now = number of segments to be allocated
 			// update the subflow's quota with the number of segments to be sent
 		else
-			rsp->quota++;
-
-		mptcp_debug(" Split = %d and quota after update = %d \n",split, rsp->quota);
+			wsp->quota++;
 
 		return skb;
 	}
@@ -324,18 +331,18 @@ found:
 // Q: How to identify the subflow ? and init the corresponding weight
 static void wlbsched_init(struct sock *sk)
 {
-	struct wlbsched_priv *wsp = wlbsched_get_priv(tcp_sk(sk));
-
 	// @y5er: update for demo
 	// setting weight according to path index
+	/*
 	struct tcp_sock *tp	= tcp_sk(sk);
+	struct wlbsched_priv *wsp = wlbsched_get_priv(tp);
 
 	if (tp->mptcp->path_index == 1)
 		wsp->weight = wlb_weight1;
 	else if (tp->mptcp->path_index == 2)
 		wsp->weight = wlb_weight2;
-
-	mptcp_debug(" Subflow weight %d \n",wsp->weight);
+	*/
+	mptcp_debug("scheduler init \n");
 }
 
 static struct mptcp_sched_ops mptcp_sched_wlb = {
