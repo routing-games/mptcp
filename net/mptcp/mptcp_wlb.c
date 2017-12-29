@@ -231,6 +231,7 @@ retry:
 		// we need to wait for unavailable subflows (to become available again)
 		// we only reset the quota if all established subflows reach its assigned weights
 		// note on iter and full_subs, in case of waiting for unavailable subflow : iter > full_sub
+
 		//if (!mptcp_wlb_is_available(sk_it, skb, false, cwnd_limited))
 		//	continue;
 
@@ -252,8 +253,8 @@ retry:
 		}
 
 		/* Or, it's totally unused */
-		// @y5er: if the subflow is totally unused, then split = rsp->weight
-		if (!wsp->quota) {
+		// @y5er: if the subflow is totally unused and it has assigned a weight, then split = rsp->weight
+		if (!wsp->quota && weight) {
 			split = weight;
 			choose_sk = sk_it;
 		}
@@ -305,7 +306,7 @@ found:
 		// so limit = split * mss_now therefore defines the max number of bytes can be allocated to selected subflow
 
 		//mptcp_debug(" Subflow %d from %pI4 with weight %d is selected, quota = %d \n", choose_tp->mptcp->path_index,&((struct inet_sock *)choose_tp)->inet_saddr,wsp->weight,wsp->quota);
-		mptcp_debug(" Subflow %d weight = %d is selected, init weight = %d \n", choose_tp->mptcp->path_index,weight,wsp->weight);
+		mptcp_debug(" Subflow %d weight = %d is selected, init weight = %d \n", choose_tp->mptcp->path_index,split,wsp->weight);
 
 		// update the quota
 		if (skb->len > mss_now)
@@ -333,7 +334,7 @@ static void wlbsched_init(struct sock *sk)
 {
 	// @y5er: update for demo
 	// setting weight according to path index
-	/*
+
 	struct tcp_sock *tp	= tcp_sk(sk);
 	struct wlbsched_priv *wsp = wlbsched_get_priv(tp);
 
@@ -341,8 +342,8 @@ static void wlbsched_init(struct sock *sk)
 		wsp->weight = wlb_weight1;
 	else if (tp->mptcp->path_index == 2)
 		wsp->weight = wlb_weight2;
-	*/
-	mptcp_debug("scheduler init \n");
+
+	mptcp_debug("scheduler init, subflow source address:%pI4 \n",&((struct inet_sock *)tp)->inet_saddr);
 }
 
 static struct mptcp_sched_ops mptcp_sched_wlb = {
