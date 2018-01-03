@@ -24,6 +24,14 @@ static unsigned char wlb_weight2;
 module_param(wlb_weight2, byte, 0644);
 MODULE_PARM_DESC(wlb_weight2, "The initial weight associated to all active subflows from NIC#2");
 
+static char *conf_string="ipadd:weight";
+module_param(conf_string, charp, 0644);
+MODULE_PARM_DESC(conf_string, "weight configuration string");
+
+static char *last_conf="unknown";
+module_param(last_conf, charp, 0644);
+MODULE_PARM_DESC(last_conf, "last read weight configuration string");
+
 struct wlbsched_priv {
 	unsigned char quota;
 	// the use of quota is to count the number of segments that already been allocated to a subflow in one round
@@ -220,6 +228,31 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 		return skb;
 	}
 
+	if ( strcmp(conf_string,last_conf) )
+	{
+		mptcp_debug(" weight update \n");
+		mptcp_debug(" conf string %s last conf %s \n",conf_string,last_conf);
+		strcpy(last_conf,conf_string);
+		// parse string
+		// strcpy(last_conf,conf_string);
+	}
+	//TODO: handle the weight assignment here - iterating through all the subflows, then assigning weight that subflow
+	// before weight assignment, we need to check for configuration update
+	// 	+ if last_conf mismatch with conf_string -> update
+	// 	+ initially, the last_conf is set to "no configure"
+	// [new approach]
+	// update function: parse configuration string conf_string
+		// for each token parsed, iterate through the subflow to update its weight
+		// strcmp ip address of subflow and the subtoken
+
+	// [old approach]
+	// update function: parse configuration string conf_string, update subflow_weight list with ip and corresponding weight
+	//  + when the list is first constructed ? can we allocate here and then free after weight assignment? yes
+	// 	+ weight assignment: iterate through subflows
+	// 		+ at one subflow, check in the list (loop all elements), compare ip address then update corresponding subflow weight
+	// if suflow not found , weight = 0
+	// update the code below to use subflow weight rather than a shared weight variable
+
 retry:
 
 	/* First, we look for a subflow which is currently being used */
@@ -306,7 +339,9 @@ found:
 		// so limit = split * mss_now therefore defines the max number of bytes can be allocated to selected subflow
 
 		//mptcp_debug(" Subflow %d from %pI4 with weight %d is selected, quota = %d \n", choose_tp->mptcp->path_index,&((struct inet_sock *)choose_tp)->inet_saddr,wsp->weight,wsp->quota);
-		mptcp_debug(" Subflow %d weight = %d is selected, init weight = %d \n", choose_tp->mptcp->path_index,split,wsp->weight);
+
+		// use the one below
+		//mptcp_debug(" Subflow %d weight = %d is selected, init weight = %d \n", choose_tp->mptcp->path_index,split,wsp->weight);
 
 		// update the quota
 		if (skb->len > mss_now)
