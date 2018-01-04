@@ -28,7 +28,7 @@ static char *subflows_weight="ipadd:weight";
 module_param(subflows_weight, charp, 0644);
 MODULE_PARM_DESC(subflows_weight, "weight configuration string");
 
-static char *last_conf="unknown";
+char *last_conf="unknown";
 // last read weight configuration
 
 struct wlbsched_priv {
@@ -232,9 +232,7 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 		mptcp_debug(" weight update \n");
 		mptcp_debug(" conf string %s last conf %s \n",subflows_weight,last_conf);
 		strcpy(last_conf,subflows_weight);
-		// parse string
-		// strcpy(last_conf,subflows_weight);
-	}
+
 	//TODO: handle the weight assignment here - iterating through all the subflows, then assigning weight that subflow
 	// before weight assignment, we need to check for configuration update
 	// 	+ if last_conf mismatch with subflows_weight -> update
@@ -340,7 +338,7 @@ found:
 		//mptcp_debug(" Subflow %d from %pI4 with weight %d is selected, quota = %d \n", choose_tp->mptcp->path_index,&((struct inet_sock *)choose_tp)->inet_saddr,wsp->weight,wsp->quota);
 
 		// use the one below
-		//mptcp_debug(" Subflow %d weight = %d is selected, init weight = %d \n", choose_tp->mptcp->path_index,split,wsp->weight);
+		mptcp_debug(" Subflow %d weight = %d is selected, init weight = %d \n", choose_tp->mptcp->path_index,split,wsp->weight);
 
 		// update the quota
 		if (skb->len > mss_now)
@@ -394,7 +392,7 @@ static int __init wlb_register(void)
 	BUILD_BUG_ON(sizeof(struct wlbsched_priv) > MPTCP_SCHED_SIZE);
 
 	//@y5er: allocate memory for last_conf variable
-	last_conf = kmalloc(sizeof(subflows_weight),GFP_KERNEL);
+	last_conf = kmalloc(sizeof(subflows_weight),GFP_ATOMIC);
 	if (mptcp_register_scheduler(&mptcp_sched_wlb))
 		return -1;
 
