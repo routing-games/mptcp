@@ -28,7 +28,7 @@ static char *subflows_weight="ipadd:weight";
 module_param(subflows_weight, charp, 0644);
 MODULE_PARM_DESC(subflows_weight, "weight configuration string");
 
-char *last_conf="unknown";
+static char last_conf[160];
 // last read weight configuration
 
 struct wlbsched_priv {
@@ -390,7 +390,7 @@ static struct mptcp_sched_ops mptcp_sched_wlb = {
 static int __init wlb_register(void)
 {
 	BUILD_BUG_ON(sizeof(struct wlbsched_priv) > MPTCP_SCHED_SIZE);
-	last_conf = kmalloc(sizeof(subflows_weight),GFP_ATOMIC);
+	//last_conf = kmalloc(sizeof(subflows_weight),GFP_ATOMIC);
 	if (mptcp_register_scheduler(&mptcp_sched_wlb))
 		return -1;
 
@@ -399,7 +399,7 @@ static int __init wlb_register(void)
 
 static void wlb_unregister(void)
 {
-	kfree(last_conf);
+	//kfree(last_conf);
 	mptcp_unregister_scheduler(&mptcp_sched_wlb);
 }
 
