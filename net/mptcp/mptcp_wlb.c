@@ -394,7 +394,7 @@ static int __init wlb_register(void)
 	BUILD_BUG_ON(sizeof(struct wlbsched_priv) > MPTCP_SCHED_SIZE);
 
 	//@y5er: allocate memory for last_conf variable
-	last_conf = kmalloc(sizeof(subflow_weight),GFP_KERNEL);
+	last_conf = kmalloc(sizeof(subflows_weight),GFP_KERNEL);
 	if (mptcp_register_scheduler(&mptcp_sched_wlb))
 		return -1;
 
