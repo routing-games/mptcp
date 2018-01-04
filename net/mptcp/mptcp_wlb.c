@@ -24,13 +24,12 @@ static unsigned char wlb_weight2;
 module_param(wlb_weight2, byte, 0644);
 MODULE_PARM_DESC(wlb_weight2, "The initial weight associated to all active subflows from NIC#2");
 
-static char *conf_string="ipadd:weight";
-module_param(conf_string, charp, 0644);
-MODULE_PARM_DESC(conf_string, "weight configuration string");
+static char *subflows_weight="ipadd:weight";
+module_param(subflows_weight, charp, 0644);
+MODULE_PARM_DESC(subflows_weight, "weight configuration string");
 
 static char *last_conf="unknown";
-module_param(last_conf, charp, 0644);
-MODULE_PARM_DESC(last_conf, "last read weight configuration string");
+// last read weight configuration
 
 struct wlbsched_priv {
 	unsigned char quota;
@@ -228,25 +227,25 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 		return skb;
 	}
 
-	if ( strcmp(conf_string,last_conf) )
+	if ( strcmp(subflows_weight,last_conf) )
 	{
 		mptcp_debug(" weight update \n");
-		mptcp_debug(" conf string %s last conf %s \n",conf_string,last_conf);
-		strcpy(last_conf,conf_string);
+		mptcp_debug(" conf string %s last conf %s \n",subflows_weight,last_conf);
+		strcpy(last_conf,subflows_weight);
 		// parse string
-		// strcpy(last_conf,conf_string);
+		// strcpy(last_conf,subflows_weight);
 	}
 	//TODO: handle the weight assignment here - iterating through all the subflows, then assigning weight that subflow
 	// before weight assignment, we need to check for configuration update
-	// 	+ if last_conf mismatch with conf_string -> update
+	// 	+ if last_conf mismatch with subflows_weight -> update
 	// 	+ initially, the last_conf is set to "no configure"
 	// [new approach]
-	// update function: parse configuration string conf_string
+	// update function: parse configuration string subflows_weight
 		// for each token parsed, iterate through the subflow to update its weight
 		// strcmp ip address of subflow and the subtoken
 
 	// [old approach]
-	// update function: parse configuration string conf_string, update subflow_weight list with ip and corresponding weight
+	// update function: parse configuration string subflows_weight, update subflow_weight list with ip and corresponding weight
 	//  + when the list is first constructed ? can we allocate here and then free after weight assignment? yes
 	// 	+ weight assignment: iterate through subflows
 	// 		+ at one subflow, check in the list (loop all elements), compare ip address then update corresponding subflow weight
@@ -394,6 +393,8 @@ static int __init wlb_register(void)
 {
 	BUILD_BUG_ON(sizeof(struct wlbsched_priv) > MPTCP_SCHED_SIZE);
 
+	//@y5er: allocate memory for last_conf variable
+	last_conf = kmalloc(sizeof(conf_string),GFP_KERNEL);
 	if (mptcp_register_scheduler(&mptcp_sched_wlb))
 		return -1;
 
@@ -402,6 +403,8 @@ static int __init wlb_register(void)
 
 static void wlb_unregister(void)
 {
+	//@y5er: free memory allocated for last_conf variable
+	kfree(last_conf);
 	mptcp_unregister_scheduler(&mptcp_sched_wlb);
 }
 
