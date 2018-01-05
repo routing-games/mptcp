@@ -234,12 +234,12 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 		strcpy(last_conf,subflows_weight);
 
 		// parse configuration string and update subflow with corresponding weight
-		unsigned char found = 0;
+		unsigned char matched = 0;
 		char *tok = strsep(&last_conf,"|");
 		while (tok != NULL)
 		{
 			char *stok = strsep(&tok,":");
-			found = 0;
+			matched = 0;
 
 			mptcp_for_each_sk(mpcb, sk_it) {
 
@@ -247,24 +247,24 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 				struct wlbsched_priv *wsp = wlbsched_get_priv(tp_it);
 
 				char subflow_saddr[20];
-				snprintf(subflow_saddr,16,"%pI4",&((struct inet_sock *)tp)->inet_saddr);
+				snprintf(subflow_saddr,16,"%pI4",&((struct inet_sock *)tp_it)->inet_saddr);
 
 				if ( !strcmp(subflow_saddr,stok) )
 				{
 					stok = strsep(&tok,":");
 					//wsp->weight = stok;
 					sscanf(stok, "%d", &wsp->weight);
-					found = 1;
+					matched = 1;
 
 					mptcp_debug(" Subflow %d with ip %s and weight = %d \n",
-							tp->mptcp->path_index,subflow_saddr,wsp->weight);
+							tp_it->mptcp->path_index,subflow_saddr,wsp->weight);
 
 					goto notfound;
 				}
 			}
 
 notfound:
-			if (!found)
+			if (!matched)
 				stok = strsep(&tok,":"); // not found corresponding subflow, continue parsing with next token
 
 			tok = strsep(&last_conf,"|");
