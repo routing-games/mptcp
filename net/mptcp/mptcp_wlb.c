@@ -31,6 +31,7 @@ MODULE_PARM_DESC(subflows_weight, "weight configuration string");
 static char last_conf[160];
 // last read weight configuration
 
+static char emp[]="\0";
 struct wlbsched_priv {
 	unsigned char quota;
 	// the use of quota is to count the number of segments that already been allocated to a subflow in one round
@@ -227,7 +228,8 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 		return skb;
 	}
 
-	if ( strcmp(subflows_weight,last_conf) )
+	// && mpcb->cnt_subflows > 1
+	if ( strcmp(subflows_weight,last_conf))
 	{
 		mptcp_debug(" weight update \n");
 		mptcp_debug(" conf string %s last conf %s \n",subflows_weight,last_conf);
@@ -235,13 +237,22 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 
 		// parse configuration string and update subflow with corresponding weight
 		unsigned char matched = 0;
+		unsigned char ntok = 0;
 		char *conf = last_conf;
 
+		// to fix the issue of not parsing all the subflows since this process is called when
+		// only one subflow is created
+		// only call to conf parser when all subflows created and subflow ip is available
+		// we only do the second strcpy(last_conf,subflows_weight) when
+		// number of tokens parsed and number of subflows are matched
+		// we get the number of subflow via mpcb->cnt_subflows
+		// count the number of tokens
+		// strcpy(last_conf,"");
 		char *tok = strsep(&conf,"|");
+		ntok++;
 		while (tok != NULL)
 		{
-
-			mptcp_debug(" token %s \n",conf);
+			mptcp_debug(" token %d = %s \n",ntok,tok);
 
 			char *stok = strsep(&tok,":");
 			matched = 0;
@@ -273,11 +284,16 @@ notfound:
 				stok = strsep(&tok,":"); // not found corresponding subflow, continue parsing with next token
 
 			tok = strsep(&conf,"|");
+			ntok++;
 		}
+
+		if (ntok > mpcb->cnt_subflows)
+			// empty last_conf string
+			strcpy(last_conf,emp);
+
 		//TODO subflow which is not configured will be assigned zero weight
 		// at scheduler init, set subflow weight to 0
-
-		strcpy(last_conf,subflows_weight);
+		//strcpy(last_conf,subflows_weight);
 
 	}
 	//TODO: handle the weight assignment here - iterating through all the subflows, then assigning weight that subflow
@@ -313,11 +329,12 @@ retry:
 		//	continue;
 
 		// @y5er: weight assignment, each subflow maintain a different weight value
+		/*
 		if (tp_it->mptcp->path_index == 1)
 			weight = wlb_weight1;
 		else if (tp_it->mptcp->path_index == 2)
 			weight = wlb_weight2;
-
+		 */
 		iter++;
 
 		/* Is this subflow currently being used? */
