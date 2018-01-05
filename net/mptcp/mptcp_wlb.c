@@ -235,9 +235,14 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 
 		// parse configuration string and update subflow with corresponding weight
 		unsigned char matched = 0;
-		char *tok = strsep(&last_conf,"|");
+		char *conf = last_conf;
+
+		char *tok = strsep(&conf,"|");
 		while (tok != NULL)
 		{
+
+			mptcp_debug(" token %s \n",conf);
+
 			char *stok = strsep(&tok,":");
 			matched = 0;
 
@@ -267,7 +272,7 @@ notfound:
 			if (!matched)
 				stok = strsep(&tok,":"); // not found corresponding subflow, continue parsing with next token
 
-			tok = strsep(&last_conf,"|");
+			tok = strsep(&conf,"|");
 		}
 		//TODO subflow which is not configured will be assigned zero weight
 		// at scheduler init, set subflow weight to 0
