@@ -232,6 +232,48 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 		mptcp_debug(" weight update \n");
 		mptcp_debug(" conf string %s last conf %s \n",subflows_weight,last_conf);
 		strcpy(last_conf,subflows_weight);
+
+		// parse configuration string and update subflow with corresponding weight
+		unsigned char found = 0;
+		char *tok = strsep(&last_conf,"|");
+		while (tok != NULL)
+		{
+			char *stok = strsep(&tok,":");
+			found = 0;
+
+			mptcp_for_each_sk(mpcb, sk_it) {
+
+				struct tcp_sock *tp_it = tcp_sk(sk_it);
+				struct wlbsched_priv *wsp = wlbsched_get_priv(tp_it);
+
+				char subflow_saddr[20];
+				snprintf(subflow_saddr,16,"%pI4",&((struct inet_sock *)tp)->inet_saddr);
+
+				if ( !strcmp(subflow_saddr,stok) )
+				{
+					stok = strsep(&tok,":");
+					//wsp->weight = stok;
+					sscanf(stok, "%d", &wsp->weight);
+					found = 1;
+
+					mptcp_debug(" Subflow %d with ip %s and weight = %d \n",
+							tp->mptcp->path_index,subflow_saddr,wsp->weight);
+
+					goto notfound;
+				}
+			}
+
+notfound:
+			if (!found)
+				stok = strsep(&tok,":"); // not found corresponding subflow, continue parsing with next token
+
+			tok = strsep(&last_conf,"|");
+		}
+		//TODO subflow which is not configured will be assigned zero weight
+		// at scheduler init, set subflow weight to 0
+
+		strcpy(last_conf,subflows_weight);
+
 	}
 	//TODO: handle the weight assignment here - iterating through all the subflows, then assigning weight that subflow
 	// before weight assignment, we need to check for configuration update
