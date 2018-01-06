@@ -273,6 +273,8 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 
 		while (tok != NULL)
 		{
+			stok = strsep(&tok,":");
+
 			mptcp_for_each_sk(mpcb, sk_it) {
 				struct tcp_sock *tp_it = tcp_sk(sk_it);
 				struct wlbsched_priv *wsp = wlbsched_get_priv(tp_it);
@@ -290,13 +292,12 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 				nconf++;
 			}
 
-			if ( (ntok > mpcb->cnt_subflows) && (nconf < mpcb->cnt_subflows) )
-			{
-				strcpy(last_conf,emp);
-			}
 			tok = strsep(&conf,"|");
-				ntok++;
+			ntok++;
 		}
+
+		if ( (ntok > mpcb->cnt_subflows) && (nconf < mpcb->cnt_subflows) )
+			strcpy(last_conf,emp);
 	}
 
 	//TODO: handle the weight assignment here - iterating through all the subflows, then assigning weight that subflow
