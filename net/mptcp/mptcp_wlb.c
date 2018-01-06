@@ -32,11 +32,9 @@ static unsigned char conf_parse __read_mostly = 1;
 module_param(conf_parse, byte, 0644);
 MODULE_PARM_DESC(conf_parse, "if set to 0, the scheduler bypass configuration parsing");
 
-
 static char last_conf[160];
 // last read weight configuration
 
-static char emp[]="\0";
 struct wlbsched_priv {
 	unsigned char quota;
 	// the use of quota is to count the number of segments that already been allocated to a subflow in one round
@@ -237,86 +235,6 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 		return skb;
 	}
 
-	conf_update = strcmp(subflows_weight,last_conf);
-
-	// && mpcb->cnt_subflows > 1
-	if ( (conf_parse == 1) && (conf_update == 1) )
-	{
-		mptcp_debug(" weight update \n");
-		mptcp_debug(" conf string %s last conf %s \n",subflows_weight,last_conf);
-		strcpy(last_conf,subflows_weight);
-		conf = last_conf;
-
-		tok = strsep(&conf,"|");
-		ntok++;
-		while (tok != NULL)
-		{
-			mptcp_debug(" token %d = %s \n",ntok,tok);
-
-			stok = strsep(&tok,":");
-			mptcp_debug(" ip %s \n",stok);
-			stok = strsep(&tok,":");
-			mptcp_debug(" weight %s \n",stok);
-
-			tok = strsep(&conf,"|");
-			ntok++;
-		}
-	}
-	else if ( (conf_parse == 2) && (conf_update == 1) && (mpcb->cnt_subflows > 1))
-	{
-		mptcp_debug(" weight update 2 \n");
-		strcpy(last_conf,subflows_weight);
-		conf = last_conf;
-
-		tok = strsep(&conf,"|");
-		ntok++;
-
-		while (tok != NULL)
-		{
-			stok = strsep(&tok,":");
-
-			mptcp_for_each_sk(mpcb, sk_it) {
-				struct tcp_sock *tp_it = tcp_sk(sk_it);
-				struct wlbsched_priv *wsp = wlbsched_get_priv(tp_it);
-
-				snprintf(subflow_saddr,16,"%pI4",&((struct inet_sock *)tp_it)->inet_saddr);
-
-				if ( strcmp(subflow_saddr,stok) )
-					continue;
-
-				stok = strsep(&tok,":");
-				sscanf(stok, "%hhu", &sw);
-				wsp->weight = sw;
-				mptcp_debug(" Subflow %d with ip %s and weight = %s \n",
-						tp_it->mptcp->path_index,subflow_saddr,stok);
-				nconf++;
-			}
-
-			tok = strsep(&conf,"|");
-			ntok++;
-		}
-
-		if ( (ntok > mpcb->cnt_subflows) && (nconf < mpcb->cnt_subflows) )
-			strcpy(last_conf,emp);
-	}
-
-	//TODO: handle the weight assignment here - iterating through all the subflows, then assigning weight that subflow
-	// before weight assignment, we need to check for configuration update
-	// 	+ if last_conf mismatch with subflows_weight -> update
-	// 	+ initially, the last_conf is set to "no configure"
-	// [new approach]
-	// update function: parse configuration string subflows_weight
-		// for each token parsed, iterate through the subflow to update its weight
-		// strcmp ip address of subflow and the subtoken
-
-	// [old approach]
-	// update function: parse configuration string subflows_weight, update subflow_weight list with ip and corresponding weight
-	//  + when the list is first constructed ? can we allocate here and then free after weight assignment? yes
-	// 	+ weight assignment: iterate through subflows
-	// 		+ at one subflow, check in the list (loop all elements), compare ip address then update corresponding subflow weight
-	// if suflow not found , weight = 0
-	// update the code below to use subflow weight rather than a shared weight variable
-
 retry:
 
 	/* First, we look for a subflow which is currently being used */
@@ -333,12 +251,11 @@ retry:
 		//	continue;
 
 		// @y5er: weight assignment, each subflow maintain a different weight value
-		/*
 		if (tp_it->mptcp->path_index == 1)
 			weight = wlb_weight1;
 		else if (tp_it->mptcp->path_index == 2)
 			weight = wlb_weight2;
-		 */
+
 		iter++;
 
 		/* Is this subflow currently being used? */
@@ -419,23 +336,11 @@ found:
 		return skb;
 	}
 
-	mptcp_debug(" return null \n");
 	return NULL;
 }
 
-//TODO: y5er: add a new init function to initialize the weight for each subflow
-// Q: Need to go through all the sub-sockets and init the weight ? -> NO
-// A: Since the init function will be called once a new socket is created
-
-// Q: How to ensure that the input of init function will be a correct meta_sk ?
-// A: The input of init function is a sub-flow socket not the meta_sk
-
-// Q: How to identify the subflow ? and init the corresponding weight
 static void wlbsched_init(struct sock *sk)
 {
-	// @y5er: update for demo
-	// setting weight according to path index
-
 	struct tcp_sock *tp	= tcp_sk(sk);
 	struct wlbsched_priv *wsp = wlbsched_get_priv(tp);
 
@@ -459,7 +364,6 @@ static struct mptcp_sched_ops mptcp_sched_wlb = {
 static int __init wlb_register(void)
 {
 	BUILD_BUG_ON(sizeof(struct wlbsched_priv) > MPTCP_SCHED_SIZE);
-	//last_conf = kmalloc(sizeof(subflows_weight),GFP_ATOMIC);
 	if (mptcp_register_scheduler(&mptcp_sched_wlb))
 		return -1;
 
@@ -468,7 +372,6 @@ static int __init wlb_register(void)
 
 static void wlb_unregister(void)
 {
-	//kfree(last_conf);
 	mptcp_unregister_scheduler(&mptcp_sched_wlb);
 }
 
