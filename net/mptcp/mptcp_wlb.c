@@ -214,9 +214,10 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 	// while limit is the max number of bytes to be allocated to a subflow
 	unsigned char iter = 0, full_subs = 0;
 
-	unsigned char nconf = 0, ntok =0;
+	unsigned char nconf = 0, ntok =0, sw = 0;
 	char *conf, *tok, *stok;
 	char subflow_saddr[20];
+
 	/* As we set it, we have to reset it as well. */
 	*limit = 0;
 
@@ -266,12 +267,16 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 				if ( !strcmp(subflow_saddr,stok) )
 				{
 					stok = strsep(&tok,":");
-					sscanf(stok, "%hhu", &wsp->weight);
-
-					mptcp_debug(" Subflow %d with ip %s and weight = %d \n",
-							tp_it->mptcp->path_index,subflow_saddr,wsp->weight);
+					sscanf(stok, "%hhu", &sw);
+					wsp->weight = sw;
+					mptcp_debug(" Subflow %d with ip %s and weight = %s \n",
+							tp_it->mptcp->path_index,subflow_saddr,stok);
 					nconf++;
 					goto nexttok;
+				}
+				else
+				{
+					mptcp_debug(" not matched ");
 				}
 			}
 
