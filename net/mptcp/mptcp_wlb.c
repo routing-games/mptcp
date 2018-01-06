@@ -214,6 +214,9 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 	// while limit is the max number of bytes to be allocated to a subflow
 	unsigned char iter = 0, full_subs = 0;
 
+	unsigned char nconf = 0, ntok =0;
+	char *conf, *tok, *stok;
+	char subflow_saddr[20];
 	/* As we set it, we have to reset it as well. */
 	*limit = 0;
 
@@ -234,11 +237,9 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 		mptcp_debug(" weight update \n");
 		mptcp_debug(" conf string %s last conf %s \n",subflows_weight,last_conf);
 		strcpy(last_conf,subflows_weight);
+		conf = last_conf;
 
 		// parse configuration string and update subflow with corresponding weight
-		unsigned char nconf = 0;
-		unsigned char ntok = 0;
-		char *conf = last_conf;
 
 		// to fix the issue of not parsing all the subflows since this process is called when
 		// only one subflow is created
@@ -248,19 +249,18 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 		// we get the number of subflow via mpcb->cnt_subflows
 		// count the number of tokens
 		// strcpy(last_conf,"");
-		char *tok = strsep(&conf,"|");
+		tok = strsep(&conf,"|");
 		ntok++;
 		while (tok != NULL)
 		{
 			mptcp_debug(" token %d = %s \n",ntok,tok);
 
-			char *stok = strsep(&tok,":");
+			stok = strsep(&tok,":");
 
 			mptcp_for_each_sk(mpcb, sk_it) {
 				struct tcp_sock *tp_it = tcp_sk(sk_it);
 				struct wlbsched_priv *wsp = wlbsched_get_priv(tp_it);
 
-				char subflow_saddr[20];
 				snprintf(subflow_saddr,16,"%pI4",&((struct inet_sock *)tp_it)->inet_saddr);
 
 				if ( !strcmp(subflow_saddr,stok) )
@@ -280,13 +280,8 @@ nexttok:
 			ntok++;
 		}
 
-		if (ntok > mpcb->cnt_subflows && nconf < mpcb->cnt_subflows)
-			// empty last_conf string
+		if ( (ntok > mpcb->cnt_subflows) && (nconf < mpcb->cnt_subflows) )
 			strcpy(last_conf,emp);
-
-		//TODO subflow which is not configured will be assigned zero weight
-		// at scheduler init, set subflow weight to 0
-		//strcpy(last_conf,subflows_weight);
 
 	}
 	//TODO: handle the weight assignment here - iterating through all the subflows, then assigning weight that subflow
