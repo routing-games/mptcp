@@ -28,6 +28,11 @@ static char *subflows_weight="ipadd:weight";
 module_param(subflows_weight, charp, 0644);
 MODULE_PARM_DESC(subflows_weight, "weight configuration string");
 
+static bool conf_parse __read_mostly = 1;
+module_param(conf_parse, bool, 0644);
+MODULE_PARM_DESC(conf_parse, "if set to 0, the scheduler bypass configuration parsing");
+
+
 static char last_conf[160];
 // last read weight configuration
 
@@ -214,7 +219,7 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 	// while limit is the max number of bytes to be allocated to a subflow
 	unsigned char iter = 0, full_subs = 0;
 
-	unsigned char nconf = 0, ntok =0, sw = 0;
+	unsigned char nconf = 0, ntok =0, sw = 0, conf_update=0;
 	char *conf, *tok, *stok;
 	char subflow_saddr[20];
 
@@ -232,24 +237,16 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 		return skb;
 	}
 
+	conf_update = strcmp(subflows_weight,last_conf);
+
 	// && mpcb->cnt_subflows > 1
-	if ( strcmp(subflows_weight,last_conf))
+	if ( (conf_parse == 1) && (conf_update == 1) )
 	{
 		mptcp_debug(" weight update \n");
 		mptcp_debug(" conf string %s last conf %s \n",subflows_weight,last_conf);
 		strcpy(last_conf,subflows_weight);
 		conf = last_conf;
 
-		// parse configuration string and update subflow with corresponding weight
-
-		// to fix the issue of not parsing all the subflows since this process is called when
-		// only one subflow is created
-		// only call to conf parser when all subflows created and subflow ip is available
-		// we only do the second strcpy(last_conf,subflows_weight) when
-		// number of tokens parsed and number of subflows are matched
-		// we get the number of subflow via mpcb->cnt_subflows
-		// count the number of tokens
-		// strcpy(last_conf,"");
 		tok = strsep(&conf,"|");
 		ntok++;
 		while (tok != NULL)
@@ -257,7 +254,25 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 			mptcp_debug(" token %d = %s \n",ntok,tok);
 
 			stok = strsep(&tok,":");
+			mptcp_debug(" ip %s \n",stok);
+			stok = strsep(&tok,":");
+			mptcp_debug(" weight %s \n",stok);
 
+			tok = strsep(&conf,"|");
+			ntok++;
+		}
+	}
+	else if ( (conf_parse == 2) && (conf_update == 1) && (mpcb->cnt_subflows > 1))
+	{
+		mptcp_debug(" weight update 2 \n");
+		strcpy(last_conf,subflows_weight);
+		conf = last_conf;
+
+		tok = strsep(&conf,"|");
+		ntok++;
+
+		while (tok != NULL)
+		{
 			mptcp_for_each_sk(mpcb, sk_it) {
 				struct tcp_sock *tp_it = tcp_sk(sk_it);
 				struct wlbsched_priv *wsp = wlbsched_get_priv(tp_it);
@@ -274,21 +289,17 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 					nconf++;
 					goto nexttok;
 				}
-				else
-				{
-					mptcp_debug(" not matched ");
-				}
 			}
 
 nexttok:
-			tok = strsep(&conf,"|");
-			ntok++;
-		}
-
 		if ( (ntok > mpcb->cnt_subflows) && (nconf < mpcb->cnt_subflows) )
+		{
 			strcpy(last_conf,emp);
-
+		}
+		tok = strsep(&conf,"|");
+			ntok++;
 	}
+
 	//TODO: handle the weight assignment here - iterating through all the subflows, then assigning weight that subflow
 	// before weight assignment, we need to check for configuration update
 	// 	+ if last_conf mismatch with subflows_weight -> update
@@ -408,6 +419,7 @@ found:
 		return skb;
 	}
 
+	mptcp_debug(" return null \n");
 	return NULL;
 }
 
