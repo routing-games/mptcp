@@ -279,25 +279,24 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 
 				snprintf(subflow_saddr,16,"%pI4",&((struct inet_sock *)tp_it)->inet_saddr);
 
-				if ( !strcmp(subflow_saddr,stok) )
-				{
-					stok = strsep(&tok,":");
-					sscanf(stok, "%hhu", &sw);
-					wsp->weight = sw;
-					mptcp_debug(" Subflow %d with ip %s and weight = %s \n",
-							tp_it->mptcp->path_index,subflow_saddr,stok);
-					nconf++;
-					goto nexttok;
-				}
+				if ( strcmp(subflow_saddr,stok) )
+					continue;
+
+				stok = strsep(&tok,":");
+				sscanf(stok, "%hhu", &sw);
+				wsp->weight = sw;
+				mptcp_debug(" Subflow %d with ip %s and weight = %s \n",
+						tp_it->mptcp->path_index,subflow_saddr,stok);
+				nconf++;
 			}
 
-nexttok:
-		if ( (ntok > mpcb->cnt_subflows) && (nconf < mpcb->cnt_subflows) )
-		{
-			strcpy(last_conf,emp);
+			if ( (ntok > mpcb->cnt_subflows) && (nconf < mpcb->cnt_subflows) )
+			{
+				strcpy(last_conf,emp);
+			}
+			tok = strsep(&conf,"|");
+				ntok++;
 		}
-		tok = strsep(&conf,"|");
-			ntok++;
 	}
 
 	//TODO: handle the weight assignment here - iterating through all the subflows, then assigning weight that subflow
