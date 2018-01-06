@@ -29,7 +29,7 @@ module_param(subflows_weight, charp, 0644);
 MODULE_PARM_DESC(subflows_weight, "weight configuration string");
 
 static unsigned char conf_parse __read_mostly = 1;
-module_param(conf_parse, bool, 0644);
+module_param(conf_parse, byte, 0644);
 MODULE_PARM_DESC(conf_parse, "if set to 0, the scheduler bypass configuration parsing");
 
 
