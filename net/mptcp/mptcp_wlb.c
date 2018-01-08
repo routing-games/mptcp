@@ -16,11 +16,11 @@ MODULE_PARM_DESC(cwnd_limited, "if set to 1, the scheduler tries to fill the con
 
 //@y5er: update for demo
 //consider the case of having only two NICs, and there is one subflow per NIC
-static unsigned char wlb_weight1;
+static unsigned char wlb_weight1 __read_mostly = 1;
 module_param(wlb_weight1, byte, 0644);
 MODULE_PARM_DESC(wlb_weight1, "The initial weight associated to all active subflows from NIC#1");
 
-static unsigned char wlb_weight2;
+static unsigned char wlb_weight2 __read_mostly = 1;
 module_param(wlb_weight2, byte, 0644);
 MODULE_PARM_DESC(wlb_weight2, "The initial weight associated to all active subflows from NIC#2");
 
@@ -32,7 +32,7 @@ static bool conf_parse __read_mostly = 1;
 module_param(conf_parse, bool, 0644);
 MODULE_PARM_DESC(conf_parse, "if set to 0, the scheduler bypass configuration parsing");
 
-static char last_conf[160];
+static char last_conf[160]="init";
 // last read weight configuration
 static char emp[]="\0";
 
@@ -237,15 +237,16 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 	}
 
 	//
-	conf_update = strcmp(subflows_weight,last_conf);
+	conf_update = strncmp(subflows_weight,last_conf,strlen(subflows_weight));
 
 	if ( conf_update && conf_parse)
 	{
-		mptcp_debug(" weight update \n");
+		mptcp_debug(" weight update , conf_update = %d \n", conf_update);
 		strcpy(last_conf,subflows_weight);
 		conf = last_conf;
 
-		mptcp_debug(" last_conf %s \n", last_conf);
+		mptcp_debug(" last_conf %s , subflows weight %d \n", last_conf);
+
 
 		tok = strsep(&conf,"|");
 
@@ -302,8 +303,8 @@ retry:
 		else if (tp_it->mptcp->path_index == 2)
 			weight = wlb_weight2;
 		*/
-		if (wsp->weight)
-			weight = wsp->weight;
+
+		weight = wsp->weight;
 
 		iter++;
 
