@@ -245,7 +245,7 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 		strcpy(last_conf,subflows_weight);
 		conf = last_conf;
 
-		mptcp_debug(" last_conf \n", last_conf);
+		mptcp_debug(" last_conf %s \n", last_conf);
 
 		tok = strsep(&conf,"|");
 
