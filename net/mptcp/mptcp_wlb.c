@@ -248,10 +248,10 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 		mptcp_debug(" last_conf \n", last_conf);
 
 		tok = strsep(&conf,"|");
-		ntok++;
 
 		while (tok != NULL)
 		{
+			ntok++;
 			stok = strsep(&tok,":");
 
 			mptcp_for_each_sk(mpcb, sk_it) {
@@ -272,7 +272,6 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 			}
 
 			tok = strsep(&conf,"|");
-			ntok++;
 		}
 
 		mptcp_debug(" ntok %d, nconf %d, nsubflow %d ",ntok, nconf, mpcb->cnt_subflows );
