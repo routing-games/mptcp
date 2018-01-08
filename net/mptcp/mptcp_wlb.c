@@ -245,6 +245,8 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 		strcpy(last_conf,subflows_weight);
 		conf = last_conf;
 
+		mptcp_debug(" last_conf \n", last_conf);
+
 		tok = strsep(&conf,"|");
 		ntok++;
 
@@ -273,6 +275,7 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 			ntok++;
 		}
 
+		mptcp_debug(" ntok %d, nconf %d, nsubflow %d ",ntok, nconf, mpcb->cnt_subflows );
 		if ( (ntok > mpcb->cnt_subflows) && (nconf < mpcb->cnt_subflows) )
 			strcpy(last_conf,emp);
 	}
@@ -294,10 +297,14 @@ retry:
 		//	continue;
 
 		// @y5er: weight assignment, each subflow maintain a different weight value
+		/*
 		if (tp_it->mptcp->path_index == 1)
 			weight = wlb_weight1;
 		else if (tp_it->mptcp->path_index == 2)
 			weight = wlb_weight2;
+		*/
+		if (wsp->weight)
+			weight = wsp->weight;
 
 		iter++;
 
@@ -366,7 +373,7 @@ found:
 		//mptcp_debug(" Subflow %d from %pI4 with weight %d is selected, quota = %d \n", choose_tp->mptcp->path_index,&((struct inet_sock *)choose_tp)->inet_saddr,wsp->weight,wsp->quota);
 
 		// use the one below
-		mptcp_debug(" Subflow %d weight = %d is selected, init weight = %d \n", choose_tp->mptcp->path_index,split,wsp->weight);
+		// mptcp_debug(" Subflow %d weight = %d is selected, init weight = %d \n", choose_tp->mptcp->path_index,split,wsp->weight);
 
 		// update the quota
 		if (skb->len > mss_now)
