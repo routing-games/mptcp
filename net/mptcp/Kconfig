@@ -99,14 +99,6 @@ config MPTCP_WLB
 	  This scheduler distributes packets among active subflows according to configured
 	  load-balancing ratio.
 
-config MPTCP_IWLB
-	tristate "MPTCP IWeightedLB"
-	depends on (MPTCP=y)
-	---help---
-	  This scheduler distributes packets among active subflows according to configured
-	  load-balancing ratio in an efficient way.
-
-
 choice
 	prompt "Default MPTCP Scheduler"
 	default DEFAULT
@@ -137,12 +129,6 @@ choice
 		  This is the weighted load-balancing scheduler, distributing packets 
 		  among active subflows according to configured load-balancing ratio.
 		  
-	config DEFAULT_IWLB
-		bool "IWeightedLB" if MPTCP_IWLB=y
-		---help---
-		  This is the weighted load-balancing scheduler, distributing packets 
-		  among active subflows according to configured load-balancing ratio.
-		  		  
 endchoice
 endif
 
@@ -153,6 +139,5 @@ config DEFAULT_MPTCP_SCHED
 	default "roundrobin" if DEFAULT_ROUNDROBIN
 	default "redundant" if DEFAULT_REDUNDANT
 	default "weightedlb" if DEFAULT_WLB
-	default "iweightedlb" if DEFAULT_IWLB
 	default "default"
 

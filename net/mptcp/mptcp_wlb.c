@@ -211,11 +211,11 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 	struct sock *sk_it, *choose_sk = NULL;
 	struct sk_buff *skb = __mptcp_wlb_next_segment(meta_sk, reinject);
 
-	//@y5er: init weight, each subflow maintains a different weight
+	//@y5er: defining weight, this weight changes according subflow
 	unsigned char weight = 1;
 	unsigned char split = weight;
-	// split: the max number of segments to be allocated to a subflow
-	// limit: the max number of bytes to be allocated to a subflow
+	// split is the max number of segments to be allocated to a subflow
+	// while limit is the max number of bytes to be allocated to a subflow
 	unsigned char iter = 0, full_subs = 0;
 
 	unsigned char nconf = 0, ntok =0, conf_update=0;
@@ -236,7 +236,7 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 		return skb;
 	}
 
-	// check for updates in the weight configuration file
+	//
 	conf_update = strncmp(subflows_weight,last_conf,strlen(subflows_weight));
 
 	if ( conf_update && conf_parse)
@@ -246,6 +246,7 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 		conf = last_conf;
 
 		mptcp_debug(" last_conf %s , subflows weight %d \n", last_conf);
+
 
 		tok = strsep(&conf,"|");
 
@@ -266,17 +267,19 @@ static struct sk_buff *mptcp_wlb_next_segment(struct sock *meta_sk,
 				stok = strsep(&tok,":");
 				sscanf(stok, "%hhu", &wsp->weight);
 
-				mptcp_debug(" subflow %d with ip %s and weight = %s \n",
+				mptcp_debug(" Subflow %d with ip %s and weight = %s \n",
 						tp_it->mptcp->path_index,subflow_saddr,stok);
 				nconf++;
 			}
+
 			tok = strsep(&conf,"|");
 		}
+
 		mptcp_debug(" ntok %d, nconf %d, nsubflow %d ",ntok, nconf, mpcb->cnt_subflows );
 		if ( (ntok > mpcb->cnt_subflows) && (nconf < mpcb->cnt_subflows) )
 			strcpy(last_conf,emp);
 	}
-
+	//
 
 retry:
 
@@ -285,18 +288,22 @@ retry:
 		struct tcp_sock *tp_it = tcp_sk(sk_it);
 		struct wlbsched_priv *wsp = wlbsched_get_priv(tp_it);
 
-		// @y5er: skip that check, to ensure the load balancing ratio is respected by all subflows
-		// we want to wait for unavailable subflows to become available again
+		// @y5er: skip that check, to ensure the load balancing ratio is respect by all subflows
+		// we need to wait for unavailable subflows (to become available again)
 		// we only reset the quota if all established subflows reach its assigned weights
+		// note on iter and full_subs, in case of waiting for unavailable subflow : iter > full_sub
 
 		//if (!mptcp_wlb_is_available(sk_it, skb, false, cwnd_limited))
 		//	continue;
 
-		// NOTICE: on the case of full_subs and iter
-		// if we do not bypass the check above, when iter = full_subs, the quota is reset
-		// however, we still have subflow that is not fully used and is unavailable
+		// @y5er: weight assignment, each subflow maintain a different weight value
+		/*
+		if (tp_it->mptcp->path_index == 1)
+			weight = wlb_weight1;
+		else if (tp_it->mptcp->path_index == 2)
+			weight = wlb_weight2;
+		*/
 
-		// @y5er: weight assignment
 		weight = wsp->weight;
 
 		iter++;
@@ -307,14 +314,14 @@ retry:
 		if (wsp->quota > 0 && wsp->quota < weight) {
 			split = weight - wsp->quota;
 			choose_sk = sk_it;
-			goto found; // prioritize the being used subflow
+			goto found;
 		}
 
 		/* Or, it's totally unused */
 		// @y5er: if the subflow is totally unused and it has assigned a weight, then split = rsp->weight
 		if (!wsp->quota && weight) {
 			split = weight;
-			choose_sk = sk_it; // found the totally unused subflow, still continue checking the other subflows
+			choose_sk = sk_it;
 		}
 
 		/* Or, it must then be fully used  */
