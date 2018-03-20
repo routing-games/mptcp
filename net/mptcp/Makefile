@@ -18,6 +18,7 @@ obj-$(CONFIG_MPTCP_BINDER) += mptcp_binder.o
 obj-$(CONFIG_MPTCP_ROUNDROBIN) += mptcp_rr.o
 obj-$(CONFIG_MPTCP_REDUNDANT) += mptcp_redundant.o
 obj-$(CONFIG_MPTCP_WLB) += mptcp_wlb.o
+obj-$(CONFIG_MPTCP_WLB) += mptcp_iwlb.o
 
 mptcp-$(subst m,y,$(CONFIG_IPV6)) += mptcp_ipv6.o
 
