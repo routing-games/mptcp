@@ -228,7 +228,7 @@ static struct sk_buff *mptcp_iwlb_next_segment(struct sock *meta_sk,
 					     unsigned int *limit)
 {
 	const struct mptcp_cb *mpcb = tcp_sk(meta_sk)->mpcb;
-	struct sock *sk, *sk_it, *choose_sk = NULL;
+	struct sock *sk_it, *choose_sk = NULL;
 	struct sk_buff *skb = __mptcp_iwlb_next_segment(meta_sk, reinject);
 
 	//@y5er: init weight
@@ -260,6 +260,7 @@ static struct sk_buff *mptcp_iwlb_next_segment(struct sock *meta_sk,
 		return skb;
 	}
 
+	/*
 	if (mpcb->cnt_subflows == 1) {
 		sk = (struct sock *)mpcb->connection_list;
 		if (!mptcp_iwlb_is_available(sk, skb, false))
@@ -267,17 +268,18 @@ static struct sk_buff *mptcp_iwlb_next_segment(struct sock *meta_sk,
 		*subsk = sk;
 		return skb;
 	}
+	*/
 
 	// check for updates in the weight configuration file
 	conf_update = strncmp(subflows_weight,last_conf,strlen(subflows_weight));
 
 	if ( conf_update && conf_parse)
 	{
-		mptcp_debug(" weight update , conf_update = %d \n", conf_update);
+		//mptcp_debug(" weight update , conf_update = %d \n", conf_update);
 		strcpy(last_conf,subflows_weight);
 		conf = last_conf;
 
-		mptcp_debug(" last_conf %s , subflows weight %d \n", last_conf);
+		//mptcp_debug(" last_conf %s \n", last_conf);
 
 		tok = strsep(&conf,"|");
 
@@ -298,13 +300,12 @@ static struct sk_buff *mptcp_iwlb_next_segment(struct sock *meta_sk,
 				stok = strsep(&tok,":");
 				sscanf(stok, "%hhu", &wsp->weight);
 
-				mptcp_debug(" subflow %d with ip %s and weight = %s \n",
-						tp_it->mptcp->path_index,subflow_saddr,stok);
+				//mptcp_debug(" subflow %d with ip %s and weight = %s \n", tp_it->mptcp->path_index,subflow_saddr,stok);
 				nconf++;
 			}
 			tok = strsep(&conf,"|");
 		}
-		mptcp_debug(" ntok %d, nconf %d, nsubflow %d ",ntok, nconf, mpcb->cnt_subflows );
+		// mptcp_debug(" ntok %d, nconf %d, nsubflow %d ",ntok, nconf, mpcb->cnt_subflows );
 		if ( (ntok > mpcb->cnt_subflows) && (nconf < mpcb->cnt_subflows) )
 			strcpy(last_conf,emp);
 	}
@@ -325,10 +326,14 @@ retry:
 		// not considering sending packet on temporary unavailable subflows
 		// but waiting for them -not reset quota - to respect the configured weight
 		if (mptcp_iwlb_is_temp_unavailable(sk_it, skb, false))
+		{
+			mptcp_debug(" temp_unavailable \n");
 			continue;
+		}
 
 		weight = wsp->weight;
 		quota = wsp->quota;
+		rank = 0xffffffff;
 
 		in_flight = tcp_packets_in_flight(tp_it);
 		space = tp_it->snd_cwnd - in_flight;
@@ -343,27 +348,21 @@ retry:
 				rank = 0 + 1/tp_it->srtt_us;
 			else if ( split <= space )
 				rank = 1 + 1/tp_it->srtt_us;
-
-			if (rank <= minRank )
-			{
-				minRank = rank;
-				choose_sk = sk_it;
-			}
 		}
 
 		/* Or, it's totally unused */
-		if (!quota && weight) {
+		if (quota == 0 && weight) {
 			split = weight;
 			if ( split > space )
 				rank = 2 + 1/tp_it->srtt_us;
 			else if ( split <= space )
 				rank = 3 + 1/tp_it->srtt_us;
+		}
 
-			if (rank <= minRank )
-			{
-				minRank = rank;
-				choose_sk = sk_it;
-			}
+		if (rank < minRank )
+		{
+			minRank = rank;
+			choose_sk = sk_it;
 		}
 
 		/* Or, it must then be fully used  */
@@ -373,10 +372,13 @@ retry:
 	}
 
 	// there is subflow that is not fully used and temporarily unavailable
-	// return NULL to wait for that subflow to available again
+	// go to retry and wait for that subflow to be available again
 	// sacrifice performance to respect the configured weight
 	if (iter && iter > full_subs)
-		return NULL;
+	{
+		mptcp_debug(" waiting for temp unavailable subflow  \n");
+		goto retry;
+	}
 
 	// all considered subflows have full quota, and we considered at least one.
 	if (iter && iter == full_subs) {
@@ -394,6 +396,7 @@ retry:
 	}
 
 	if (choose_sk) {
+
 		unsigned int mss_now;
 		struct tcp_sock *choose_tp = tcp_sk(choose_sk);
 		struct iwlbsched_priv *wsp = iwlbsched_get_priv(choose_tp);
@@ -405,6 +408,8 @@ retry:
 
 		mss_now = tcp_current_mss(*subsk);
 		*limit = split * mss_now;
+
+		mptcp_debug(" rank %d, minRank %d, quota %d , weight %d \n",rank, minRank, wsp->quota, wsp->weight );
 
 		// update the quota
 		if (skb->len > mss_now)
