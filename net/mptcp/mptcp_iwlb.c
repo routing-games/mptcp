@@ -312,6 +312,8 @@ static struct sk_buff *mptcp_iwlb_next_segment(struct sock *meta_sk,
 
 retry:
 
+	iter = 0;
+	full_subs = 0;
 	/* First, we look for a subflow which is currently being used */
 	mptcp_for_each_sk(mpcb, sk_it) {
 		struct tcp_sock *tp_it = tcp_sk(sk_it);
@@ -325,6 +327,8 @@ retry:
 		// this will cause the iter > full_sub when there are subflow is temporary unavailable
 		// not considering sending packet on temporary unavailable subflows
 		// but waiting for them -not reset quota - to respect the configured weight
+
+		// how about the case that subflow tmp unavailable and also full quota
 		if (mptcp_iwlb_is_temp_unavailable(sk_it, skb, false))
 		{
 			mptcp_debug(" temp_unavailable \n");
@@ -374,7 +378,7 @@ retry:
 	// there is subflow that is not fully used and temporarily unavailable
 	// go to retry and wait for that subflow to be available again
 	// sacrifice performance to respect the configured weight
-	if (iter && iter > full_subs)
+	if (iter && iter > full_subs && !choose_sk)
 	{
 		mptcp_debug(" waiting for temp unavailable subflow  \n");
 		goto retry;
@@ -419,7 +423,6 @@ retry:
 
 		return skb;
 	}
-
 	return NULL;
 }
 
