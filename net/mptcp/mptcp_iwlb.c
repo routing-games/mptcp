@@ -160,7 +160,7 @@ static struct sock *iwlb_get_available_subflow(struct sock *meta_sk,
 	    skb && mptcp_is_data_fin(skb)) {
 		mptcp_for_each_sk(mpcb, sk) {
 			if (tcp_sk(sk)->mptcp->path_index == mpcb->dfin_path_index &&
-			    mptcp_iwlb_is_available(sk, skb, zero_wnd_test, true))
+			    mptcp_iwlb_is_available(sk, skb, zero_wnd_test))
 				return sk;
 		}
 	}
@@ -169,7 +169,7 @@ static struct sock *iwlb_get_available_subflow(struct sock *meta_sk,
 	mptcp_for_each_sk(mpcb, sk) {
 		struct tcp_sock *tp = tcp_sk(sk);
 
-		if (!mptcp_iwlb_is_available(sk, skb, zero_wnd_test, true))
+		if (!mptcp_iwlb_is_available(sk, skb, zero_wnd_test))
 			continue;
 
 		if (mptcp_wlb_dont_reinject_skb(tp, skb)) {
@@ -228,7 +228,7 @@ static struct sk_buff *mptcp_iwlb_next_segment(struct sock *meta_sk,
 					     unsigned int *limit)
 {
 	const struct mptcp_cb *mpcb = tcp_sk(meta_sk)->mpcb;
-	struct sock *sk_it, *choose_sk = NULL;
+	struct sock *sk, *sk_it, *choose_sk = NULL;
 	struct sk_buff *skb = __mptcp_iwlb_next_segment(meta_sk, reinject);
 
 	//@y5er: init weight
@@ -262,7 +262,7 @@ static struct sk_buff *mptcp_iwlb_next_segment(struct sock *meta_sk,
 
 	if (mpcb->cnt_subflows == 1) {
 		sk = (struct sock *)mpcb->connection_list;
-		if (!mptcp_iwlb_is_available(sk, skb, zero_wnd_test))
+		if (!mptcp_iwlb_is_available(sk, skb, false))
 			sk = NULL;
 		*subsk = sk;
 		return skb;
@@ -316,7 +316,7 @@ retry:
 		struct tcp_sock *tp_it = tcp_sk(sk_it);
 		struct iwlbsched_priv *wsp = iwlbsched_get_priv(tp_it);
 
-		if (!mptcp_iwlb_is_def_available(sk_it))
+		if (mptcp_iwlb_is_def_unavailable(sk_it))
 			continue;
 
 		iter++;
@@ -324,7 +324,7 @@ retry:
 		// this will cause the iter > full_sub when there are subflow is temporary unavailable
 		// not considering sending packet on temporary unavailable subflows
 		// but waiting for them -not reset quota - to respect the configured weight
-		if (!mptcp_iwlb_is_temp_available(sk_it))
+		if (mptcp_iwlb_is_temp_unavailable(sk_it, skb, false))
 			continue;
 
 		weight = wsp->weight;
@@ -385,7 +385,7 @@ retry:
 			struct tcp_sock *tp_it = tcp_sk(sk_it);
 			struct iwlbsched_priv *wsp = iwlbsched_get_priv(tp_it);
 
-			if (!mptcp_iwlb_is_def_available(sk_it))
+			if (mptcp_iwlb_is_def_unavailable(sk_it))
 				continue;
 
 			wsp->quota = 0;
@@ -398,7 +398,7 @@ retry:
 		struct tcp_sock *choose_tp = tcp_sk(choose_sk);
 		struct iwlbsched_priv *wsp = iwlbsched_get_priv(choose_tp);
 
-		if (!mptcp_iwlb_is_available(choose_sk, skb, false, true))
+		if (!mptcp_iwlb_is_available(choose_sk, skb, false))
 			return NULL;
 
 		*subsk = choose_sk;
