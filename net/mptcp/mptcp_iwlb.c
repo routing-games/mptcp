@@ -242,6 +242,7 @@ static struct sk_buff *mptcp_iwlb_next_segment(struct sock *meta_sk,
 	char *conf, *tok, *stok;
 	char subflow_saddr[20];
 
+	unsigned char tu = 0;
 	u32 rank = 0;
 	u32 minRank = 0xffffffff;
 	unsigned int space, in_flight;
@@ -311,9 +312,6 @@ static struct sk_buff *mptcp_iwlb_next_segment(struct sock *meta_sk,
 	}
 
 retry:
-
-	iter = 0;
-	full_subs = 0;
 	/* First, we look for a subflow which is currently being used */
 	mptcp_for_each_sk(mpcb, sk_it) {
 		struct tcp_sock *tp_it = tcp_sk(sk_it);
@@ -322,18 +320,14 @@ retry:
 		if (mptcp_iwlb_is_def_unavailable(sk_it))
 			continue;
 
-		iter++;
-
-		// this will cause the iter > full_sub when there are subflow is temporary unavailable
-		// not considering sending packet on temporary unavailable subflows
-		// but waiting for them -not reset quota - to respect the configured weight
-
-		// how about the case that subflow tmp unavailable and also full quota
 		if (mptcp_iwlb_is_temp_unavailable(sk_it, skb, false))
 		{
 			mptcp_debug(" temp_unavailable \n");
+			tu = 1;
 			continue;
 		}
+
+		iter++;
 
 		weight = wsp->weight;
 		quota = wsp->quota;
@@ -352,6 +346,12 @@ retry:
 				rank = 0 + 1/tp_it->srtt_us;
 			else if ( split <= space )
 				rank = 1 + 1/tp_it->srtt_us;
+			if (rank < minRank )
+			{
+				minRank = rank;
+				choose_sk = sk_it;
+			}
+
 		}
 
 		/* Or, it's totally unused */
@@ -361,12 +361,12 @@ retry:
 				rank = 2 + 1/tp_it->srtt_us;
 			else if ( split <= space )
 				rank = 3 + 1/tp_it->srtt_us;
-		}
 
-		if (rank < minRank )
-		{
-			minRank = rank;
-			choose_sk = sk_it;
+			if (rank < minRank )
+			{
+				minRank = rank;
+				choose_sk = sk_it;
+			}
 		}
 
 		/* Or, it must then be fully used  */
@@ -375,27 +375,29 @@ retry:
 
 	}
 
-	// there is subflow that is not fully used and temporarily unavailable
-	// go to retry and wait for that subflow to be available again
-	// sacrifice performance to respect the configured weight
-	if (iter && iter > full_subs && !choose_sk)
-	{
-		mptcp_debug(" waiting for temp unavailable subflow  \n");
-		goto retry;
-	}
-
 	// all considered subflows have full quota, and we considered at least one.
+	// cannot send
 	if (iter && iter == full_subs) {
-		// reset quota to 0 for all available subflows
-		mptcp_for_each_sk(mpcb, sk_it) {
-			struct tcp_sock *tp_it = tcp_sk(sk_it);
-			struct iwlbsched_priv *wsp = iwlbsched_get_priv(tp_it);
-
-			if (mptcp_iwlb_is_def_unavailable(sk_it))
-				continue;
-
-			wsp->quota = 0;
+		// if there is a temp unavailable subflow we cannot reset the quota but wait for that subflow
+		// and retry
+		if ( tu )
+		{
+			mptcp_debug(" wait for temp_unavailable \n");
 		}
+		if ( !tu )
+		{
+			// reset quota to 0 for all available subflows
+			mptcp_for_each_sk(mpcb, sk_it) {
+				struct tcp_sock *tp_it = tcp_sk(sk_it);
+				struct iwlbsched_priv *wsp = iwlbsched_get_priv(tp_it);
+
+				if (mptcp_iwlb_is_def_unavailable(sk_it))
+					continue;
+
+				wsp->quota = 0;
+			}
+		}
+		tu = 0;
 		goto retry;
 	}
 
@@ -429,7 +431,7 @@ retry:
 static void iwlbsched_init(struct sock *sk)
 {
 	struct tcp_sock *tp	= tcp_sk(sk);
-	struct iwlbsched_priv *wsp = iwlbsched_get_priv(tp);
+	// struct iwlbsched_priv *wsp = iwlbsched_get_priv(tp);
 	mptcp_debug("scheduler init, subflow source address:%pI4 \n",&((struct inet_sock *)tp)->inet_saddr);
 }
 
